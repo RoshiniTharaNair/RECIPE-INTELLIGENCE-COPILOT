@@ -1,0 +1,18 @@
+[
+  {
+    "ingredients": ["tomato", "onion", "rice"],
+    "cuisine": "Indian",
+    "prep_time": 30,
+    "servings": 2,
+    "skill_level": "beginner",
+    "expected_keywords": ["tomato rice", "pulao", "rice"]
+  },
+  {
+    "ingredients": ["lemon", "rice"],
+    "cuisine": "Indian",
+    "prep_time": 20,
+    "servings": 2,
+    "skill_level": "beginner",
+    "expected_keywords": ["lemon rice"]
+  }
+]

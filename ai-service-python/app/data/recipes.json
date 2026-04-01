@@ -1,0 +1,47 @@
+[
+  {
+    "id": "r1",
+    "title": "Tomato Rice",
+    "cuisine": "Indian",
+    "prep_time": 25,
+    "skill_level": "beginner",
+    "ingredients": ["rice", "tomato", "onion", "oil", "salt", "turmeric", "chili powder"],
+    "summary": "A simple spiced rice dish made with tomato and onion."
+  },
+  {
+    "id": "r2",
+    "title": "Onion Tomato Pulao",
+    "cuisine": "Indian",
+    "prep_time": 30,
+    "skill_level": "beginner",
+    "ingredients": ["rice", "onion", "tomato", "oil", "salt", "cumin"],
+    "summary": "A light pulao using onion and tomato."
+  },
+  {
+    "id": "r3",
+    "title": "Tomato Fried Rice",
+    "cuisine": "Indian",
+    "prep_time": 20,
+    "skill_level": "beginner",
+    "ingredients": ["rice", "tomato", "onion", "oil", "salt", "pepper"],
+    "summary": "Quick tomato rice stir fry."
+  },
+  {
+    "id": "r4",
+    "title": "Lemon Rice",
+    "cuisine": "Indian",
+    "prep_time": 20,
+    "skill_level": "beginner",
+    "ingredients": ["rice", "lemon", "mustard seeds", "oil", "salt"],
+    "summary": "Tangy seasoned rice."
+  },
+  {
+    "id": "r5",
+    "title": "Vegetable Pulao",
+    "cuisine": "Indian",
+    "prep_time": 35,
+    "skill_level": "beginner",
+    "ingredients": ["rice", "carrot", "beans", "onion", "oil", "salt", "garam masala"],
+    "summary": "Mild vegetable rice dish."
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "tomato-onion-rice quick indian",
+    "query": {
+      "ingredients": ["tomato", "onion", "rice"],
+      "cuisine": "Indian",
+      "prep_time": 30,
+      "servings": 2,
+      "skill_level": "beginner"
+    },
+    "expected_any_keywords": ["rice", "tomato", "pulao", "chaul"],
+    "expected_all_ingredients": ["tomato", "onion", "rice"]
+  },
+  {
+    "name": "lemon rice",
+    "query": {
+      "ingredients": ["lemon", "rice"],
+      "cuisine": "Indian",
+      "prep_time": 25,
+      "servings": 2,
+      "skill_level": "beginner"
+    },
+    "expected_any_keywords": ["lemon", "rice"],
+    "expected_all_ingredients": ["lemon", "rice"]
+  },
+  {
+    "name": "onion salad quick",
+    "query": {
+      "ingredients": ["onion", "tomato", "cucumber"],
+      "cuisine": "Indian",
+      "prep_time": 15,
+      "servings": 2,
+      "skill_level": "beginner"
+    },
+    "expected_any_keywords": ["salad", "kachumber"],
+    "expected_all_ingredients": ["onion", "tomato"]
+  }
+]
