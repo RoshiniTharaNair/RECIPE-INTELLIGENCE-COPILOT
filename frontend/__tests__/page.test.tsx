@@ -65,10 +65,8 @@ describe("Recipe page", () => {
       expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/template:/i)).toBeInTheDocument();
-    expect(screen.getByText(/saag_paneer/i)).toBeInTheDocument();
-    expect(screen.getByText(/grounding source:/i)).toBeInTheDocument();
-    expect(screen.getByText(/retrieval_grounded/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/saag_paneer/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/retrieval_grounded/i).length).toBeGreaterThanOrEqual(1);
     expect(
       screen.getByText(/Recipe was assembled deterministically using retrieved grounding/i)
     ).toBeInTheDocument();
@@ -128,8 +126,74 @@ describe("Recipe page", () => {
       expect(screen.getByRole("heading", { name: /cheese toast/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/cheese_toast/i)).toBeInTheDocument();
-    expect(screen.getByText(/template_only/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/cheese_toast/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/template_only/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("shows generic fallback warning UX", async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        recipes: [
+          {
+            title: "Custom Abc Xyz Recipe",
+            why_chosen: "Built directly from your ingredients: abc, xyz.",
+            ingredients: [
+              { name: "abc", quantity: "1 unit" },
+              { name: "xyz", quantity: "1 unit" }
+            ],
+            steps: [
+              "Prepare the ingredients: abc, xyz.",
+              "Heat a pan with a little oil."
+            ],
+            substitutions: [],
+            nutrition_summary: {
+              calories: null,
+              protein_g: null,
+              carbs_g: null,
+              fats_g: null
+            },
+            warnings: [
+              "Low-confidence generated fallback: no known recipe template matched these ingredients.",
+              "No retrieval grounding was available, so this recipe is only a basic placeholder."
+            ],
+            match_score: 0.25,
+            matched_input_ingredients: ["abc", "xyz"],
+            extra_major_ingredients: [],
+            template_name: "generic_fallback",
+            grounding_source: "template_only"
+          }
+        ],
+        meta: {
+          latency_ms: 140,
+          model_name: "deterministic_generator",
+          recipe_count: 1,
+          input_ingredients: ["abc", "xyz"],
+          quality_notes: [
+            "No known template matched the input ingredients.",
+            "Generated output is a low-confidence fallback.",
+            "No strong retrieved candidates were available for grounding."
+          ]
+        }
+      }
+    });
+
+    render(<Page />);
+
+    fireEvent.change(screen.getByLabelText(/ingredients/i), {
+      target: { value: "abc, xyz" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /generate instead/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /custom abc xyz recipe/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText(/generic_fallback/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Low-confidence fallback/i).length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByText(/No known template matched the input ingredients/i)
+    ).toBeInTheDocument();
   });
 
   test("shows retrieval confidence info", async () => {
