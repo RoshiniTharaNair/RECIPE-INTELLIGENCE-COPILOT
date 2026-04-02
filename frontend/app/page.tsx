@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import axios from "axios";
 
 type RecipeSummaryItem = {
@@ -86,6 +86,23 @@ type RecipeDetailItem = {
   grounded: boolean;
 };
 
+function sourceBadgeClass(source?: string) {
+  if (source === "retrieval_grounded") {
+    return "bg-green-100 text-green-800 border border-green-300";
+  }
+  if (source === "template_only") {
+    return "bg-slate-100 text-slate-800 border border-slate-300";
+  }
+  return "bg-gray-100 text-gray-800 border border-gray-300";
+}
+
+function templateBadgeClass(templateName?: string) {
+  if (templateName === "generic_fallback") {
+    return "bg-amber-100 text-amber-900 border border-amber-300";
+  }
+  return "bg-blue-100 text-blue-900 border border-blue-300";
+}
+
 export default function HomePage() {
   const [ingredients, setIngredients] = useState("tomato, onion, rice");
   const [cuisine, setCuisine] = useState("Indian");
@@ -99,7 +116,6 @@ export default function HomePage() {
   const [error, setError] = useState("");
 
   const [mode, setMode] = useState<"retrieval" | "generation_deterministic" | "">("");
-
   const [recipes, setRecipes] = useState<RecipeSummaryItem[]>([]);
   const [generatedRecipes, setGeneratedRecipes] = useState<GeneratedRecipeItem[]>([]);
   const [meta, setMeta] = useState<RetrieveResponse["meta"] | null>(null);
@@ -107,10 +123,14 @@ export default function HomePage() {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
   const [selectedRecipeDetail, setSelectedRecipeDetail] = useState<RecipeDetailItem | null>(null);
 
-  const parsedIngredients = ingredients
-    .split(",")
-    .map((i) => i.trim())
-    .filter(Boolean);
+  const parsedIngredients = useMemo(
+    () =>
+      ingredients
+        .split(",")
+        .map((i) => i.trim())
+        .filter(Boolean),
+    [ingredients]
+  );
 
   const requestPayload = {
     ingredients: parsedIngredients,
@@ -162,11 +182,12 @@ export default function HomePage() {
 
       setMode("generation_deterministic");
       setGeneratedRecipes(response.data.recipes || []);
+      setRecipes([]);
       setMeta({
         recipe_count: response.data.meta?.recipe_count || 0,
         source: response.data.meta?.source || "deterministic_template_generation",
         fallback_reason: "user_requested_generation",
-        fallback_suggested: meta?.fallback_suggested || false,
+        fallback_suggested: false,
         quality_notes: response.data.meta?.quality_notes || [],
         model_name: response.data.meta?.model_name,
         latency_ms: response.data.meta?.latency_ms,
@@ -473,74 +494,106 @@ export default function HomePage() {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {generatedRecipes.map((recipe, recipeIndex) => (
-              <div
-                key={`${recipe.title}-${recipeIndex}`}
-                className="border rounded-xl p-6 space-y-3"
-              >
-                <h3 className="text-xl font-semibold">
-                  {recipeIndex + 1}. {recipe.title}
-                </h3>
+            {generatedRecipes.map((recipe, recipeIndex) => {
+              const isGenericFallback = recipe.template_name === "generic_fallback";
 
-                <p>
-                  <strong>Why chosen:</strong> {recipe.why_chosen}
-                </p>
+              return (
+                <div
+                  key={`${recipe.title}-${recipeIndex}`}
+                  className="border rounded-xl p-6 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-semibold">
+                      {recipeIndex + 1}. {recipe.title}
+                    </h3>
 
-                <p>
-                  <strong>Match score:</strong> {recipe.match_score}
-                </p>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${templateBadgeClass(
+                        recipe.template_name
+                      )}`}
+                    >
+                      {recipe.template_name || "unknown_template"}
+                    </span>
 
-                <div>
-                  <strong>Ingredients:</strong>
-                  <ul className="list-disc pl-6 mt-2">
-                    {recipe.ingredients.map((item, idx) => (
-                      <li key={idx}>
-                        {item.quantity ? `${item.quantity} ` : ""}
-                        {item.name}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${sourceBadgeClass(
+                        recipe.grounding_source
+                      )}`}
+                    >
+                      {recipe.grounding_source || "unknown_source"}
+                    </span>
+                  </div>
 
-                <div>
-                  <strong>Steps:</strong>
-                  <ol className="list-decimal pl-6 mt-2">
-                    {recipe.steps.map((step, idx) => (
-                      <li key={idx}>{step}</li>
-                    ))}
-                  </ol>
-                </div>
+                  {isGenericFallback && (
+                    <div className="border rounded-lg p-3 bg-amber-50 text-amber-900 space-y-1">
+                      <p className="font-medium">Low-confidence fallback</p>
+                      <p className="text-sm">
+                        No known recipe template matched this ingredient combination, so this is a
+                        basic placeholder recipe.
+                      </p>
+                    </div>
+                  )}
 
-                {recipe.substitutions.length > 0 && (
+                  <p>
+                    <strong>Why chosen:</strong> {recipe.why_chosen}
+                  </p>
+
+                  <p>
+                    <strong>Match score:</strong> {recipe.match_score}
+                  </p>
+
                   <div>
-                    <strong>Substitutions:</strong>
+                    <strong>Ingredients:</strong>
                     <ul className="list-disc pl-6 mt-2">
-                      {recipe.substitutions.map((sub, idx) => (
-                        <li key={idx}>{sub}</li>
+                      {recipe.ingredients.map((item, idx) => (
+                        <li key={idx}>
+                          {item.quantity ? `${item.quantity} ` : ""}
+                          {item.name}
+                        </li>
                       ))}
                     </ul>
                   </div>
-                )}
 
-                {recipe.warnings.length > 0 && (
                   <div>
-                    <strong>Warnings:</strong>
-                    <ul className="list-disc pl-6 mt-2">
-                      {recipe.warnings.map((warning, idx) => (
-                        <li key={idx}>{warning}</li>
+                    <strong>Steps:</strong>
+                    <ol className="list-decimal pl-6 mt-2">
+                      {recipe.steps.map((step, idx) => (
+                        <li key={idx}>{step}</li>
                       ))}
-                    </ul>
+                    </ol>
                   </div>
-                )}
 
-                <p>
-                  <strong>Template:</strong> {recipe.template_name || "N/A"}
-                </p>
-                <p>
-                  <strong>Grounding source:</strong> {recipe.grounding_source || "N/A"}
-                </p>
-              </div>
-            ))}
+                  {recipe.substitutions.length > 0 && (
+                    <div>
+                      <strong>Substitutions:</strong>
+                      <ul className="list-disc pl-6 mt-2">
+                        {recipe.substitutions.map((sub, idx) => (
+                          <li key={idx}>{sub}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {recipe.warnings.length > 0 && (
+                    <div>
+                      <strong>Warnings:</strong>
+                      <ul className="list-disc pl-6 mt-2">
+                        {recipe.warnings.map((warning, idx) => (
+                          <li key={idx}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <p>
+                    <strong>Template:</strong> {recipe.template_name || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Grounding source:</strong> {recipe.grounding_source || "N/A"}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
