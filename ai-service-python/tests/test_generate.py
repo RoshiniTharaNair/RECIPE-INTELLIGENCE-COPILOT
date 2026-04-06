@@ -183,6 +183,18 @@ def test_build_deterministic_recipe_curd_normalizes_to_yogurt():
     assert recipe["template_name"] == "yogurt_onion_dip"
 
 
+def test_build_deterministic_recipe_egg_toast_template():
+    data = RecipeGenerateRequest(ingredients=["bread", "egg"], cuisine="")
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+    assert recipe["title"] == "Egg Toast"
+    assert recipe["template_name"] == "egg_toast"
+
+def test_build_deterministic_recipe_egg_fried_rice_template():
+    data = RecipeGenerateRequest(ingredients=["rice", "egg"], cuisine="")
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+    assert recipe["title"] == "Egg Fried Rice"
+    assert recipe["template_name"] == "egg_fried_rice"
+
 def test_generate_api_template_only_quality_note(client, monkeypatch):
     from app.api.routes import generate as generate_route
 
@@ -233,3 +245,80 @@ def test_generate_api_template_only_quality_note(client, monkeypatch):
     assert body["meta"]["quality_notes"] == [
         "No strong retrieved candidates were available, so recipe was assembled from user ingredients."
     ]
+
+def test_build_deterministic_recipe_plural_normalization():
+    data = RecipeGenerateRequest(ingredients=["onions", "tomatoes"], cuisine="Indian")
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+
+    assert recipe["title"] == "Onion Tomato Masala"
+    assert recipe["template_name"] == "onion_tomato_masala"
+
+def test_build_deterministic_recipe_respects_avoid_ingredients():
+    data = RecipeGenerateRequest(
+        ingredients=["spinach", "paneer"],
+        avoid_ingredients=["garlic"],
+    )
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+    assert recipe["template_name"] == "generic_fallback"
+    assert any("avoided ingredients" in w.lower() for w in recipe["warnings"])
+
+def test_generate_api_generic_fallback_shape(client, monkeypatch):
+    from app.api.routes import generate as generate_route
+
+    def fake_generate_recipes(_data):
+        return {
+            "recipes": [{
+                "title": "Custom Abc Xyz Recipe",
+                "why_chosen": "Built directly from your ingredients: abc, xyz.",
+                "ingredients": [{"name": "abc", "quantity": "1 unit"}],
+                "steps": ["Prepare ingredients."],
+                "substitutions": [],
+                "nutrition_summary": {"calories": None, "protein_g": None, "carbs_g": None, "fats_g": None},
+                "warnings": ["Low-confidence generated fallback: no known recipe template matched these ingredients."],
+                "match_score": 0.25,
+                "matched_input_ingredients": ["abc", "xyz"],
+                "extra_major_ingredients": [],
+                "template_name": "generic_fallback",
+                "grounding_source": "template_only",
+            }],
+            "meta": {
+                "latency_ms": 100,
+                "model_name": "deterministic_generator",
+                "recipe_count": 1,
+                "input_ingredients": ["abc", "xyz"],
+                "quality_notes": ["Generated output is a low-confidence fallback."],
+            },
+        }
+
+    monkeypatch.setattr(generate_route, "generate_recipes", fake_generate_recipes)
+    response = client.post("/generate", json={"ingredients": ["abc", "xyz"]})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recipes"][0]["template_name"] == "generic_fallback"
+    assert body["recipes"][0]["grounding_source"] == "template_only"
+
+def test_merge_avoid_ingredients_adds_dietary_preset_exclusions():
+    from app.services.dietary_preferences import merge_avoid_ingredients
+
+    merged = merge_avoid_ingredients(["garlic"], ["vegetarian", "dairy-free"])
+
+    assert "garlic" in merged
+    assert "egg" in merged
+    assert "cheese" in merged
+    assert "yogurt" in merged
+
+
+def test_build_deterministic_recipe_dairy_free_preset_forces_safe_fallback():
+    data = RecipeGenerateRequest(
+        ingredients=["spinach", "paneer"],
+        dietary_preferences=["dairy-free"],
+    )
+
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+
+    assert recipe["template_name"] == "generic_fallback"
+    assert recipe["grounding_source"] == "template_only"
+    assert "dietary preferences" in recipe["warnings"][0].lower()
+
+    ingredient_names = [item["name"] for item in recipe["ingredients"]]
+    assert "paneer" not in ingredient_names

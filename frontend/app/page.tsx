@@ -3,6 +3,9 @@
 import { useMemo, useState } from "react";
 import axios from "axios";
 
+const API_BASE_URL =
+  (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001").replace(/\/$/, "");
+
 type RecipeSummaryItem = {
   id: string;
   title: string;
@@ -103,6 +106,12 @@ function templateBadgeClass(templateName?: string) {
   return "bg-blue-100 text-blue-900 border border-blue-300";
 }
 
+const dietaryPresetOptions = [
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "egg-free", label: "Egg-free" },
+  { value: "dairy-free", label: "Dairy-free" },
+] as const;
+
 export default function HomePage() {
   const [ingredients, setIngredients] = useState("tomato, onion, rice");
   const [cuisine, setCuisine] = useState("Indian");
@@ -113,7 +122,9 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [generateLoading, setGenerateLoading] = useState(false);
+
   const [error, setError] = useState("");
+  const [detailError, setDetailError] = useState("");
 
   const [mode, setMode] = useState<"retrieval" | "generation_deterministic" | "">("");
   const [recipes, setRecipes] = useState<RecipeSummaryItem[]>([]);
@@ -122,6 +133,15 @@ export default function HomePage() {
 
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
   const [selectedRecipeDetail, setSelectedRecipeDetail] = useState<RecipeDetailItem | null>(null);
+
+  const [avoidIngredients, setAvoidIngredients] = useState("");
+
+  const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
+
+  const parsedAvoidIngredients = useMemo(
+  () => avoidIngredients.split(",").map((i) => i.trim()).filter(Boolean),
+  [avoidIngredients]
+);
 
   const parsedIngredients = useMemo(
     () =>
@@ -132,18 +152,28 @@ export default function HomePage() {
     [ingredients]
   );
 
-  const requestPayload = {
-    ingredients: parsedIngredients,
-    cuisine,
-    prep_time: prepTime,
-    servings,
-    skill_level: skillLevel,
-  };
+const toggleDietaryPreference = (value: string) => {
+  setDietaryPreferences((prev) =>
+    prev.includes(value)
+      ? prev.filter((item) => item !== value)
+      : [...prev, value]
+  );
+};
 
+const requestPayload = {
+  ingredients: parsedIngredients,
+  avoid_ingredients: parsedAvoidIngredients,
+  dietary_preferences: dietaryPreferences,
+  cuisine,
+  prep_time: prepTime,
+  servings,
+  skill_level: skillLevel,
+};
   const handleRetrieve = async () => {
     try {
       setLoading(true);
       setError("");
+      setDetailError("");
       setMode("");
       setRecipes([]);
       setGeneratedRecipes([]);
@@ -151,10 +181,10 @@ export default function HomePage() {
       setSelectedRecipeId("");
       setSelectedRecipeDetail(null);
 
-      const response = await axios.post<RetrieveResponse>(
-        "http://127.0.0.1:8001/retrieve",
-        requestPayload
-      );
+const response = await axios.post<RetrieveResponse>(
+  `${API_BASE_URL}/retrieve`,
+  requestPayload
+);
 
       setMode("retrieval");
       setRecipes(response.data.recipes || []);
@@ -171,14 +201,15 @@ export default function HomePage() {
     try {
       setGenerateLoading(true);
       setError("");
+      setDetailError("");
       setGeneratedRecipes([]);
       setSelectedRecipeId("");
       setSelectedRecipeDetail(null);
 
-      const response = await axios.post<GenerateResponse>(
-        "http://127.0.0.1:8001/generate",
-        requestPayload
-      );
+const response = await axios.post<GenerateResponse>(
+  `${API_BASE_URL}/generate`,
+  requestPayload
+);
 
       setMode("generation_deterministic");
       setGeneratedRecipes(response.data.recipes || []);
@@ -204,30 +235,74 @@ export default function HomePage() {
   const handleLoadDetail = async (recipeId: string) => {
     try {
       setDetailLoading(true);
+      setDetailError("");
       setError("");
       setSelectedRecipeId(recipeId);
       setSelectedRecipeDetail(null);
 
-      const response = await axios.post<RecipeDetailItem>(
-        "http://127.0.0.1:8001/generate-detail",
-        {
-          recipe_id: recipeId,
-          servings,
-          skill_level: skillLevel,
-          user_ingredients: parsedIngredients,
-        }
-      );
+const response = await axios.post<RecipeDetailItem>(
+  `${API_BASE_URL}/generate-detail`,
+  {
+    recipe_id: recipeId,
+    servings,
+    skill_level: skillLevel,
+    user_ingredients: parsedIngredients,
+  }
+);
 
       setSelectedRecipeDetail(response.data);
       window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Failed to load recipe detail");
+      setDetailError(
+        err?.response?.data?.detail || err?.message || "Failed to load recipe detail"
+      );
     } finally {
       setDetailLoading(false);
     }
   };
 
-  const showConfidenceBanner = Boolean(meta?.fallback_suggested && mode === "retrieval");
+const showConfidenceBanner = Boolean(meta?.fallback_suggested && mode === "retrieval");
+
+const showDetailPanel =
+  mode === "retrieval" &&
+  (recipes.length > 0 || detailLoading || detailError || selectedRecipeDetail);
+
+const showInitialGuidance =
+  mode === "" &&
+  !loading &&
+  !generateLoading &&
+  !error &&
+  !meta &&
+  recipes.length === 0 &&
+  generatedRecipes.length === 0;
+
+const showRetrievalEmptyState =
+  mode === "retrieval" &&
+  !loading &&
+  !error &&
+  recipes.length === 0;
+
+const showGenerationEmptyState =
+  mode === "generation_deterministic" &&
+  !generateLoading &&
+  !error &&
+  generatedRecipes.length === 0;
+
+
+const activeConstraintBadges = [
+  ...parsedAvoidIngredients.map((item) => ({
+    key: `avoid-${item}`,
+    label: `Avoid: ${item}`,
+  })),
+  ...dietaryPreferences.map((item) => ({
+    key: `preset-${item}`,
+    label: `Preset: ${item}`,
+  })),
+];
+
+const showConstraintBadges =
+  activeConstraintBadges.length > 0 &&
+  (mode === "retrieval" || mode === "generation_deterministic");
 
   return (
     <main className="max-w-6xl mx-auto p-8 space-y-6">
@@ -244,6 +319,37 @@ export default function HomePage() {
             placeholder="Ingredients comma separated"
           />
         </label>
+
+        <label className="block space-y-1">
+  <span className="font-medium">Avoid ingredients</span>
+  <input
+    aria-label="Avoid ingredients"
+    className="w-full border rounded-lg p-3"
+    value={avoidIngredients}
+    onChange={(e) => setAvoidIngredients(e.target.value)}
+    placeholder="Optional: egg, peanut, garlic"
+  />
+</label>
+
+<fieldset className="space-y-2">
+  <legend className="font-medium">Dietary presets</legend>
+  <div className="flex flex-wrap gap-4">
+    {dietaryPresetOptions.map((option) => (
+      <label key={option.value} className="inline-flex items-center gap-2">
+        <input
+          type="checkbox"
+          aria-label={option.label}
+          checked={dietaryPreferences.includes(option.value)}
+          onChange={() => toggleDietaryPreference(option.value)}
+        />
+        <span>{option.label}</span>
+      </label>
+    ))}
+  </div>
+  <p className="text-sm text-slate-600">
+    These presets automatically exclude ingredient groups during retrieval and generation.
+  </p>
+</fieldset>
 
         <label className="block space-y-1">
           <span className="font-medium">Cuisine</span>
@@ -311,7 +417,19 @@ export default function HomePage() {
       </div>
 
       {error && <p className="text-red-600">{error}</p>}
-
+{showInitialGuidance && (
+  <div className="border rounded-xl p-6 bg-slate-50 space-y-3">
+    <h2 className="text-xl font-semibold">Start with ingredients</h2>
+    <p className="text-slate-700">
+      Enter a few ingredients, choose a cuisine if you want, and click{" "}
+      <strong>Find Recipes</strong> to see grounded retrieval results first.
+    </p>
+    <p className="text-sm text-slate-600">
+      If retrieval looks weak, you can use <strong>Generate Instead</strong> for a
+      deterministic fallback recipe.
+    </p>
+  </div>
+)}
       {showConfidenceBanner && (
         <div className="border rounded-xl p-4 bg-yellow-50 space-y-2">
           <p className="font-medium">These results are low-confidence for your request.</p>
@@ -392,99 +510,301 @@ export default function HomePage() {
         </div>
       )}
 
+      {showConstraintBadges && (
+  <div className="border rounded-xl p-4 space-y-3 bg-slate-50">
+    <h2 className="text-lg font-semibold">Active constraints</h2>
+    <div className="flex flex-wrap gap-2">
+      {activeConstraintBadges.map((badge) => (
+        <span
+          key={badge.key}
+          className="inline-flex items-center rounded-full border px-3 py-1 text-sm bg-white"
+        >
+          {badge.label}
+        </span>
+      ))}
+    </div>
+  </div>
+)}
+
+      {showRetrievalEmptyState && (
+  <div className="border rounded-xl p-6 space-y-3 bg-amber-50">
+    <h2 className="text-2xl font-semibold">No retrieval matches found</h2>
+    <p className="text-slate-700">
+      We could not find strong recipe summaries for your current request.
+    </p>
+    <p className="text-sm text-slate-600">
+      Try adjusting ingredients or cuisine, or use <strong>Generate Instead</strong> to
+      build a fallback recipe from your inputs.
+    </p>
+
+    {parsedIngredients.length > 0 && (
+      <p className="text-sm">
+        <strong>Current ingredients:</strong> {parsedIngredients.join(", ")}
+      </p>
+    )}
+
+    <div className="flex gap-3 flex-wrap">
+      <button
+        onClick={handleGenerateInstead}
+        className="px-4 py-2 rounded-lg border"
+        disabled={generateLoading}
+      >
+        {generateLoading ? "Generating..." : "Generate Instead"}
+      </button>
+    </div>
+  </div>
+)}
+
+
       {mode === "retrieval" && recipes.length > 0 && (
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold">Retrieved Recipe Suggestions</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {recipes.map((recipe, recipeIndex) => (
-              <div
-                key={recipe.id}
-                className={`border rounded-xl p-6 space-y-3 ${
-                  selectedRecipeId === recipe.id ? "border-black" : ""
-                }`}
-              >
-                <h3 className="text-xl font-semibold">
-                  {recipeIndex + 1}. {recipe.title}
-                </h3>
+            {recipes.map((recipe, recipeIndex) => {
+              const isSelected = selectedRecipeId === recipe.id;
 
-                <p>{recipe.description || "No description available."}</p>
-
-                <p>
-                  <strong>Cuisine:</strong> {recipe.cuisine || "N/A"}
-                </p>
-
-                <p>
-                  <strong>Prep time:</strong> {recipe.prep_time_mins ?? "N/A"} mins
-                </p>
-
-                <p>
-                  <strong>Total time:</strong> {recipe.total_time_mins ?? "N/A"} mins
-                </p>
-
-                <p>
-                  <strong>Servings:</strong> {recipe.servings ?? "N/A"}
-                </p>
-
-                <p>
-                  <strong>Match score:</strong> {recipe.match_score}
-                </p>
-
-                <p>
-                  <strong>Extra major count:</strong> {recipe.extra_major_count ?? 0}
-                </p>
-
-                <p>
-                  <strong>Why chosen:</strong> {recipe.why_chosen}
-                </p>
-
-                <div>
-                  <strong>Matched ingredients:</strong>
-                  {recipe.matched_input_ingredients.length > 0 ? (
-                    <ul className="list-disc pl-6 mt-2">
-                      {recipe.matched_input_ingredients.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2">No direct ingredient matches recorded.</p>
-                  )}
-                </div>
-
-                {recipe.confidence_level && (
-                  <p>
-                    <strong>Confidence:</strong> {recipe.confidence_level}
-                    {typeof recipe.confidence_score === "number"
-                      ? ` (${recipe.confidence_score})`
-                      : ""}
-                  </p>
-                )}
-
-                {recipe.confidence_reasons && recipe.confidence_reasons.length > 0 && (
-                  <div>
-                    <strong>Confidence reasons:</strong>
-                    <ul className="list-disc pl-6 mt-2">
-                      {recipe.confidence_reasons.map((reason, idx) => (
-                        <li key={idx}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => handleLoadDetail(recipe.id)}
-                  className="px-4 py-2 rounded-lg border"
-                  disabled={detailLoading && selectedRecipeId === recipe.id}
+              return (
+                <div
+                  key={recipe.id}
+                  className={`border rounded-xl p-6 space-y-3 transition ${
+  isSelected
+    ? "border-black shadow-md bg-slate-50 ring-2 ring-slate-300"
+    : "hover:shadow-sm"
+}`}
                 >
-                  {detailLoading && selectedRecipeId === recipe.id
-                    ? "Loading detail..."
-                    : "View Full Recipe"}
-                </button>
-              </div>
-            ))}
+                  {isSelected && (
+  <span className="inline-block px-2 py-1 rounded-full text-xs font-medium bg-black text-white">
+    Selected
+  </span>
+)}
+                  <h3 className="text-xl font-semibold">
+                    {recipeIndex + 1}. {recipe.title}
+                  </h3>
+
+                  <p>{recipe.description || "No description available."}</p>
+
+                  <p>
+                    <strong>Cuisine:</strong> {recipe.cuisine || "N/A"}
+                  </p>
+
+                  <p>
+                    <strong>Prep time:</strong> {recipe.prep_time_mins ?? "N/A"} mins
+                  </p>
+
+                  <p>
+                    <strong>Total time:</strong> {recipe.total_time_mins ?? "N/A"} mins
+                  </p>
+
+                  <p>
+                    <strong>Servings:</strong> {recipe.servings ?? "N/A"}
+                  </p>
+
+                  <p>
+                    <strong>Match score:</strong> {recipe.match_score}
+                  </p>
+
+                  <p>
+                    <strong>Extra major count:</strong> {recipe.extra_major_count ?? 0}
+                  </p>
+
+                  <p>
+                    <strong>Why chosen:</strong> {recipe.why_chosen}
+                  </p>
+
+                  <div>
+                    <strong>Matched ingredients:</strong>
+                    {recipe.matched_input_ingredients.length > 0 ? (
+                      <ul className="list-disc pl-6 mt-2">
+                        {recipe.matched_input_ingredients.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2">No direct ingredient matches recorded.</p>
+                    )}
+                  </div>
+
+                  {recipe.confidence_level && (
+                    <p>
+                      <strong>Confidence:</strong> {recipe.confidence_level}
+                      {typeof recipe.confidence_score === "number"
+                        ? ` (${recipe.confidence_score})`
+                        : ""}
+                    </p>
+                  )}
+
+                  {recipe.confidence_reasons && recipe.confidence_reasons.length > 0 && (
+                    <div>
+                      <strong>Confidence reasons:</strong>
+                      <ul className="list-disc pl-6 mt-2">
+                        {recipe.confidence_reasons.map((reason, idx) => (
+                          <li key={idx}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => handleLoadDetail(recipe.id)}
+                    className="px-4 py-2 rounded-lg border"
+                    disabled={detailLoading && isSelected}
+                  >
+                    {detailLoading && isSelected ? "Loading detail..." : "View Full Recipe"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
+
+
+
+      {showDetailPanel && (
+        <div className="border rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+  <h2 className="text-2xl font-semibold">Recipe Detail</h2>
+
+  <div className="flex items-center gap-3 flex-wrap">
+    {selectedRecipeId && (
+      <span className="text-sm text-slate-600">
+        Selected recipe ID: {selectedRecipeId}
+      </span>
+    )}
+
+    {(selectedRecipeId || selectedRecipeDetail || detailError) && (
+      <button
+        onClick={() => {
+          setSelectedRecipeId("");
+          setSelectedRecipeDetail(null);
+          setDetailError("");
+        }}
+        className="px-3 py-2 rounded-lg border"
+      >
+        Clear Detail
+      </button>
+    )}
+  </div>
+</div>
+
+          {!selectedRecipeId && !selectedRecipeDetail && !detailLoading && !detailError && (
+            <p className="text-slate-600">
+              Choose a retrieved recipe and click <strong>View Full Recipe</strong> to load grounded
+              recipe detail.
+            </p>
+          )}
+
+          {detailLoading && (
+            <div className="border rounded-lg p-4 bg-slate-50 space-y-2">
+              <p className="font-medium">Loading grounded recipe detail...</p>
+              <p className="text-sm text-slate-600">
+                The selected recipe is being expanded using the stored recipe context.
+              </p>
+            </div>
+          )}
+
+          {detailError && (
+            <div className="border rounded-lg p-4 bg-red-50 text-red-700">
+              {detailError}
+            </div>
+          )}
+
+          {selectedRecipeDetail && !detailLoading && (
+            <div className="space-y-4">
+              <h3 className="text-2xl font-semibold">{selectedRecipeDetail.title}</h3>
+
+              <p>
+                <strong>Why chosen:</strong> {selectedRecipeDetail.why_chosen}
+              </p>
+
+              <p>
+                <strong>Source recipe title:</strong> {selectedRecipeDetail.source_recipe_title}
+              </p>
+
+              <p>
+                <strong>Grounded:</strong> {selectedRecipeDetail.grounded ? "Yes" : "No"}
+              </p>
+
+              <div>
+                <h4 className="font-semibold">Ingredients</h4>
+                <ul className="list-disc pl-6">
+                  {selectedRecipeDetail.ingredients.map((item, idx) => (
+                    <li key={idx}>
+                      {item.quantity ? `${item.quantity} ` : ""}
+                      {item.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-semibold">Steps</h4>
+                <ol className="list-decimal pl-6">
+                  {selectedRecipeDetail.steps.map((step, idx) => (
+                    <li key={idx}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+
+              <div>
+                <h4 className="font-semibold">Substitutions</h4>
+                {selectedRecipeDetail.substitutions.length > 0 ? (
+                  <ul className="list-disc pl-6">
+                    {selectedRecipeDetail.substitutions.map((sub, idx) => (
+                      <li key={idx}>{sub}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No substitutions suggested.</p>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-semibold">Nutrition</h4>
+                <p>Calories: {selectedRecipeDetail.nutrition_summary?.calories ?? "N/A"}</p>
+                <p>Protein: {selectedRecipeDetail.nutrition_summary?.protein_g ?? "N/A"} g</p>
+                <p>Carbs: {selectedRecipeDetail.nutrition_summary?.carbs_g ?? "N/A"} g</p>
+                <p>Fats: {selectedRecipeDetail.nutrition_summary?.fats_g ?? "N/A"} g</p>
+              </div>
+
+              {selectedRecipeDetail.warnings?.length > 0 && (
+                <div>
+                  <h4 className="font-semibold">Warnings</h4>
+                  <ul className="list-disc pl-6">
+                    {selectedRecipeDetail.warnings.map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showGenerationEmptyState && (
+  <div className="border rounded-xl p-6 space-y-3 bg-slate-50">
+    <h2 className="text-2xl font-semibold">No generated recipes returned</h2>
+    <p className="text-slate-700">
+      The generation request completed, but no recipe suggestions were returned.
+    </p>
+    <p className="text-sm text-slate-600">
+      Try changing the ingredients slightly and run generation again.
+    </p>
+
+    {meta?.quality_notes && meta.quality_notes.length > 0 && (
+      <div>
+        <strong>Quality notes:</strong>
+        <ul className="list-disc pl-6 mt-1">
+          {meta.quality_notes.map((note, idx) => (
+            <li key={idx}>{note}</li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </div>
+)}
 
       {mode === "generation_deterministic" && generatedRecipes.length > 0 && (
         <div className="space-y-6">
@@ -595,77 +915,6 @@ export default function HomePage() {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {selectedRecipeDetail && (
-        <div className="border rounded-xl p-6 space-y-4">
-          <h2 className="text-2xl font-semibold">{selectedRecipeDetail.title}</h2>
-
-          <p>
-            <strong>Why chosen:</strong> {selectedRecipeDetail.why_chosen}
-          </p>
-
-          <p>
-            <strong>Source recipe title:</strong> {selectedRecipeDetail.source_recipe_title}
-          </p>
-
-          <p>
-            <strong>Grounded:</strong> {selectedRecipeDetail.grounded ? "Yes" : "No"}
-          </p>
-
-          <div>
-            <h3 className="font-semibold">Ingredients</h3>
-            <ul className="list-disc pl-6">
-              {selectedRecipeDetail.ingredients.map((item, idx) => (
-                <li key={idx}>
-                  {item.quantity ? `${item.quantity} ` : ""}
-                  {item.name}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="font-semibold">Steps</h3>
-            <ol className="list-decimal pl-6">
-              {selectedRecipeDetail.steps.map((step, idx) => (
-                <li key={idx}>{step}</li>
-              ))}
-            </ol>
-          </div>
-
-          <div>
-            <h3 className="font-semibold">Substitutions</h3>
-            {selectedRecipeDetail.substitutions.length > 0 ? (
-              <ul className="list-disc pl-6">
-                {selectedRecipeDetail.substitutions.map((sub, idx) => (
-                  <li key={idx}>{sub}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>No substitutions suggested.</p>
-            )}
-          </div>
-
-          <div>
-            <h3 className="font-semibold">Nutrition</h3>
-            <p>Calories: {selectedRecipeDetail.nutrition_summary?.calories ?? "N/A"}</p>
-            <p>Protein: {selectedRecipeDetail.nutrition_summary?.protein_g ?? "N/A"} g</p>
-            <p>Carbs: {selectedRecipeDetail.nutrition_summary?.carbs_g ?? "N/A"} g</p>
-            <p>Fats: {selectedRecipeDetail.nutrition_summary?.fats_g ?? "N/A"} g</p>
-          </div>
-
-          {selectedRecipeDetail.warnings?.length > 0 && (
-            <div>
-              <h3 className="font-semibold">Warnings</h3>
-              <ul className="list-disc pl-6">
-                {selectedRecipeDetail.warnings.map((warning, idx) => (
-                  <li key={idx}>{warning}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
     </main>

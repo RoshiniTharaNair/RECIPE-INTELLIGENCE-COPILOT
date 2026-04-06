@@ -4,7 +4,7 @@ from typing import List
 from app.models.schemas import RecipeGenerateRequest
 from app.services.retriever import retrieve_top_recipes
 from app.services.ingredient_knowledge import normalize_text
-
+from app.services.dietary_preferences import merge_avoid_ingredients
 
 def build_retrieval_context(data: RecipeGenerateRequest, candidate_count: int = 1) -> List[dict]:
     try:
@@ -25,6 +25,10 @@ def normalize_generation_ingredient(name: str) -> str:
         "peppers": "bell pepper",
         "yoghurt": "yogurt",
         "curd": "yogurt",
+        "paneer": "cheese",
+        "mozzarella": "cheese",
+        "cheddar": "cheese",
+        "cottage cheese": "cheese",
         "eggs": "egg",
         "tomatoes": "tomato",
         "onions": "onion",
@@ -33,9 +37,18 @@ def normalize_generation_ingredient(name: str) -> str:
 
     return synonym_map.get(value, value)
 
-
 def normalize_generation_ingredients(items: List[str]) -> List[str]:
     return [normalize_generation_ingredient(i) for i in items]
+
+
+
+def normalize_generation_avoid_ingredients(data: RecipeGenerateRequest) -> set[str]:
+    merged = merge_avoid_ingredients(
+        getattr(data, "avoid_ingredients", []) or [],
+        getattr(data, "dietary_preferences", []) or [],
+    )
+    return set(normalize_generation_ingredients(merged))
+
 
 
 def has_ing(ing_set: set[str], *names: str) -> bool:
@@ -51,7 +64,12 @@ def maybe_step(condition: bool, text: str) -> list[str]:
 
 
 def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates: List[dict]) -> dict:
-    user_ings = normalize_generation_ingredients(data.ingredients)
+    avoid_set = normalize_generation_avoid_ingredients(data)
+    user_ings = [i for i in normalize_generation_ingredients(data.ingredients) if i not in avoid_set]
+    safe_matched_inputs = [
+        i for i in data.ingredients
+        if normalize_generation_ingredient(i) not in avoid_set
+    ]
     ing_set = set(user_ings)
     cuisine = normalize_text(data.cuisine or "")
 
@@ -66,6 +84,34 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
         match_score=1.0,
         warnings=None,
     ):
+        recipe_names = [normalize_generation_ingredient(name) for name, _ in ingredients if name]
+        if any(name in avoid_set for name in recipe_names):
+            return {
+                "title": "Custom Safe Recipe",
+                "why_chosen": "A named template was skipped because it would include avoided ingredients from your avoid list or dietary preferences.",
+                "ingredients": ingredient_items([(i, "1 unit") for i in user_ings]),
+                "steps": [
+                    "Prepare the remaining safe ingredients.",
+                    "Heat a pan with a little oil.",
+                    "Cook until combined and tender.",
+                    "Season lightly and serve hot.",
+                ],
+                "substitutions": [],
+                "nutrition_summary": {
+                    "calories": None,
+                    "protein_g": None,
+                    "carbs_g": None,
+                    "fats_g": None,
+                },
+                "warnings": [
+                    "A named template was skipped because it would include avoided ingredients from your avoid list or dietary preferences."
+                ],
+                "match_score": 0.25,
+                "matched_input_ingredients": safe_matched_inputs,
+                "extra_major_ingredients": [],
+                "template_name": "generic_fallback",
+                "grounding_source": "template_only",
+            }
         return {
             "title": title,
             "why_chosen": why,
@@ -80,7 +126,7 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             },
             "warnings": warnings or [],
             "match_score": match_score,
-            "matched_input_ingredients": data.ingredients,
+            "matched_input_ingredients": safe_matched_inputs,
             "extra_major_ingredients": [],
             "template_name": template_name,
             "grounding_source": grounding_source,
@@ -141,6 +187,26 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             match_score=1.0,
             warnings=[],
         )
+    
+    if has_ing(ing_set, "bread") and has_ing(ing_set, "egg"):
+        title = "Anda Toast" if cuisine == "indian" else "Egg Toast"
+        return make_recipe(
+            title,
+            "Built from bread and egg using a quick pan-toast template.",
+            [("bread", "2 slices"), ("egg", "2"), ("oil", "1 tsp")],
+            [
+                "Beat the egg in a bowl.",
+                "Dip or spread the egg over the bread.",
+                "Heat a lightly oiled pan.",
+                "Cook the bread until the egg is set and the bread is lightly crisp.",
+                "Serve hot.",
+            ],
+            substitutions=["Add black pepper, onion, or chili for more flavor."],
+            template_name="anda_toast" if cuisine == "indian" else "egg_toast",
+            grounding_source="template_only",
+            match_score=1.0,
+            warnings=[],
+        )
 
     if has_ing(ing_set, "tomato") and has_ing(ing_set, "onion"):
         title = "Onion Tomato Masala" if cuisine == "indian" else "Tomato Onion Sauté"
@@ -177,6 +243,26 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             ],
             substitutions=["Use leftover rice for faster preparation."],
             template_name="onion_pulao" if cuisine == "indian" else "onion_rice",
+            grounding_source="template_only",
+            match_score=1.0,
+            warnings=[],
+        )
+    
+    if has_ing(ing_set, "rice") and has_ing(ing_set, "egg"):
+        title = "Anda Rice" if cuisine == "indian" else "Egg Fried Rice"
+        return make_recipe(
+            title,
+            "Built from rice and egg using a quick stir-fried rice template.",
+            [("rice", "1 cup"), ("egg", "2"), ("oil", "1 tbsp")],
+            [
+                "Cook the rice and let it cool slightly.",
+                "Beat the egg in a bowl.",
+                "Heat oil in a pan.",
+                "Scramble the egg until just cooked.",
+                "Add rice, mix well, season lightly, and serve hot.",
+            ],
+            substitutions=["Add onion, tomato, or bell pepper for more flavor."],
+            template_name="anda_rice" if cuisine == "indian" else "egg_fried_rice",
             grounding_source="template_only",
             match_score=1.0,
             warnings=[],
@@ -342,6 +428,25 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             match_score=1.0,
             warnings=[],
         )
+    
+    if has_ing(ing_set, "potato") and has_ing(ing_set, "cheese"):
+        return make_recipe(
+            "Cheesy Potato Skillet",
+            "Built from potato and cheese using a simple stovetop skillet template.",
+            [("potato", "2 medium"), ("cheese", "1/2 cup"), ("oil", "1 tbsp")],
+            [
+                "Peel and chop the potatoes.",
+                "Heat oil in a pan and cook the potatoes until tender.",
+                "Lower the heat and add cheese.",
+                "Stir until the cheese melts over the potatoes.",
+                "Serve hot.",
+            ],
+            substitutions=["Use paneer for a firmer texture."],
+            template_name="cheesy_potato_skillet",
+            grounding_source="template_only",
+            match_score=1.0,
+            warnings=[],
+        )
 
     if has_ing(ing_set, "bell pepper") and has_ing(ing_set, "onion"):
         return make_recipe(
@@ -381,28 +486,42 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             warnings=[],
         )
 
-    title = "Custom " + " ".join(i.title() for i in data.ingredients[:2]) + " Recipe"
+    title = "Custom " + " ".join(i.title() for i in safe_matched_inputs[:2]) + " Recipe"
+    if not safe_matched_inputs:
+        title = "Custom Safe Recipe"
+
     if retrieved_candidates and retrieved_candidates[0].get("title"):
         top_title = retrieved_candidates[0]["title"]
         if not ("paneer" in normalize_text(top_title) and "paneer" not in ing_set):
             title = top_title
 
-    generic_warnings = [
+    generic_warnings = []
+
+    if len(safe_matched_inputs) < len(data.ingredients):
+        generic_warnings.append(
+            "Some ingredients were excluded by your avoid list or dietary preferences, so a safe fallback recipe was generated."
+        )
+
+    generic_warnings.append(
         "Low-confidence generated fallback: no known recipe template matched these ingredients."
-    ]
+    )
+
     if not retrieved_candidates:
         generic_warnings.append(
             "No retrieval grounding was available, so this recipe is only a basic placeholder."
         )
 
+    safe_display = ", ".join(safe_matched_inputs) if safe_matched_inputs else "remaining safe ingredients"
+    safe_steps = ", ".join(user_ings) if user_ings else "remaining safe ingredients"
+
     return make_recipe(
         title,
-        f"Built directly from your ingredients: {', '.join(data.ingredients)}.",
+        f"Built directly from your usable ingredients: {safe_display}.",
         [(ing, "1 unit") for ing in user_ings],
         [
-            f"Prepare the ingredients: {', '.join(user_ings)}.",
+            f"Prepare the ingredients: {safe_steps}.",
             "Heat a pan with a little oil.",
-            f"Cook the main ingredients: {', '.join(user_ings)} until combined and tender.",
+            f"Cook the main ingredients: {safe_steps} until combined and tender.",
             "Season lightly and adjust to taste.",
             "Serve hot.",
         ],
@@ -412,7 +531,6 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
         match_score=0.25 if not retrieved_candidates else 0.4,
         warnings=generic_warnings,
     )
-
 
 def generate_recipes(data: RecipeGenerateRequest) -> dict:
     started_at = time.perf_counter()

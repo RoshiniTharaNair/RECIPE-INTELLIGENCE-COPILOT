@@ -12,6 +12,7 @@ from app.services.ingredient_knowledge import (
     normalize_text,
 )
 from app.services.ingredient_pair_rules import compute_pair_bonus
+from app.services.dietary_preferences import merge_avoid_ingredients
 
 ALLOWED_PANTRY_BASICS = {
     "salt",
@@ -106,6 +107,18 @@ def count_disallowed_major_ingredients(
             count += 1
     return count
 
+
+def get_avoid_ingredients(request: RecipeGenerateRequest) -> List[str]:
+    return merge_avoid_ingredients(
+        getattr(request, "avoid_ingredients", []) or [],
+        getattr(request, "dietary_preferences", []) or [],
+    )
+
+def recipe_has_avoided_ingredient(recipe_ingredients: List[str], avoid_ingredients: List[str]) -> bool:
+    if not avoid_ingredients:
+        return False
+    recipe_canonical = set(canonicalize_ingredient_list(recipe_ingredients))
+    return any(item in recipe_canonical for item in avoid_ingredients)
 
 def cuisine_similarity_bonus(request_cuisine: str | None, recipe_cuisine: str | None) -> float:
     if not request_cuisine or not recipe_cuisine:
@@ -444,8 +457,12 @@ def build_query_text(request: RecipeGenerateRequest) -> str:
         " ".join(request.ingredients),
         request.cuisine or "",
     ]
-    return " | ".join(part for part in parts if part).strip()
 
+    merged_avoids = get_avoid_ingredients(request)
+    if merged_avoids:
+        parts.append("avoid " + " ".join(merged_avoids))
+
+    return " | ".join(part for part in parts if part).strip()
 
 def retrieve_top_recipes_lexical(request: RecipeGenerateRequest, top_k: int = 10) -> List[dict]:
     from app.services.recipe_data import load_recipes
@@ -453,6 +470,7 @@ def retrieve_top_recipes_lexical(request: RecipeGenerateRequest, top_k: int = 10
     recipes = load_recipes()
     candidates = []
     normalized_input = normalize_ingredient_list(request.ingredients)
+    avoid_ingredients = get_avoid_ingredients(request)
 
     for recipe in recipes:
         scored = calculate_recipe_score(recipe, request)
@@ -464,6 +482,9 @@ def retrieve_top_recipes_lexical(request: RecipeGenerateRequest, top_k: int = 10
         if recipe_has_disallowed_major_ingredient(recipe_ingredients, normalized_input):
             continue
 
+        if recipe_has_avoided_ingredient(recipe_ingredients, avoid_ingredients):
+            continue
+        
         scored["semantic_score"] = 0.0
         scored["match_score"] = scored["lexical_score"]
         candidates.append(scored)
@@ -499,6 +520,7 @@ def retrieve_top_recipes(request: RecipeGenerateRequest, top_k: int = 10) -> Lis
 
     results = []
     normalized_input = normalize_ingredient_list(request.ingredients)
+    avoid_ingredients = get_avoid_ingredients(request)
 
     for score, idx in zip(scores[0], ids[0]):
         if idx == -1:
@@ -513,6 +535,9 @@ def retrieve_top_recipes(request: RecipeGenerateRequest, top_k: int = 10) -> Lis
         if recipe_has_disallowed_major_ingredient(recipe_ingredients, normalized_input):
             continue
 
+        if recipe_has_avoided_ingredient(recipe_ingredients, avoid_ingredients):
+            continue
+        
         recipe = calculate_recipe_score(raw_recipe, request)
         recipe["semantic_score"] = float(score)
         recipe["match_score"] = round((0.9 * recipe["lexical_score"]) + (0.1 * float(score)), 3)

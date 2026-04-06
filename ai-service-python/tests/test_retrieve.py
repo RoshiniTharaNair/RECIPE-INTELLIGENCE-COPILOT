@@ -108,3 +108,66 @@ def test_retrieve_api_weak_match_sets_fallback(client, monkeypatch):
     assert meta["confidence_score"] == 0.0
     assert meta["confidence_level"] == "low"
     assert meta["confidence_reasons"] == ["No retrieval candidates were found."]
+
+
+def test_retrieve_api_accepts_avoid_ingredients(client, monkeypatch):
+    from app.api.routes import retrieve as retrieve_route
+    captured = {}
+
+    def fake_retrieve_with_fallback_signal(data, top_k=10):
+        captured["avoid_ingredients"] = data.avoid_ingredients
+        return {
+            "recipes": [],
+            "fallback_needed": True,
+            "fallback_reason": "no_retrieval_results",
+            "confidence_score": 0.0,
+            "confidence_level": "low",
+            "confidence_reasons": ["No retrieval candidates were found."],
+        }
+
+    monkeypatch.setattr(retrieve_route, "retrieve_with_fallback_signal", fake_retrieve_with_fallback_signal)
+
+    response = client.post("/retrieve", json={
+        "ingredients": ["tomato", "onion"],
+        "avoid_ingredients": ["egg", "garlic"],
+    })
+
+    assert response.status_code == 200
+    assert captured["avoid_ingredients"] == ["egg", "garlic"]
+
+def test_retrieve_api_accepts_dietary_preferences(client, monkeypatch):
+    from app.api.routes import retrieve as retrieve_route
+
+    captured = {}
+
+    def fake_retrieve_with_fallback_signal(data, top_k=10):
+        captured["dietary_preferences"] = data.dietary_preferences
+        return {
+            "recipes": [],
+            "fallback_needed": True,
+            "fallback_reason": "no_retrieval_results",
+            "confidence_score": 0.0,
+            "confidence_level": "low",
+            "confidence_reasons": ["No retrieval candidates were found."],
+        }
+
+    monkeypatch.setattr(
+        retrieve_route,
+        "retrieve_with_fallback_signal",
+        fake_retrieve_with_fallback_signal,
+    )
+
+    response = client.post(
+        "/retrieve",
+        json={
+            "ingredients": ["tomato", "onion"],
+            "dietary_preferences": ["vegetarian", "dairy-free"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["dietary_preferences"] == ["vegetarian", "dairy-free"]
+
+    body = response.json()
+    assert body["mode"] == "retrieval"
+    assert body["meta"]["fallback_suggested"] is True

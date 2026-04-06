@@ -8,7 +8,8 @@ class RecipeGenerateRequest(BaseModel):
     prep_time: Optional[int] = None
     servings: Optional[int] = None
     skill_level: Optional[str] = None
-
+    avoid_ingredients: List[str] = Field(default_factory=list)
+    dietary_preferences: List[str] = Field(default_factory=list)
 
 class IngredientItem(BaseModel):
     name: str
