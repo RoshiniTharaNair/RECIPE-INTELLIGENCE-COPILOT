@@ -6,6 +6,7 @@ import Page from "../app/page";
 jest.mock("axios");
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+
 describe("Recipe page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -881,4 +882,673 @@ test("shows active constraint badges after retrieval", async () => {
   expect(screen.getByText(/^Preset: dairy-free$/i)).toBeInTheDocument();
 });
 
+test("shows active constraints inside the grounded detail panel", async () => {
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.change(screen.getByLabelText(/avoid ingredients/i), {
+    target: { value: "garlic" }
+  });
+
+  fireEvent.click(screen.getByLabelText(/^dairy-free$/i));
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /recipe detail/i })).toBeInTheDocument();
+  });
+
+  expect(
+    screen.getByRole("heading", { name: /constraints used for this detail/i })
+  ).toBeInTheDocument();
+
+  expect(
+    screen.getByText(/this grounded detail reflects your active avoid list and dietary preset filters/i)
+  ).toBeInTheDocument();
+
+  expect(screen.getAllByText(/^Avoid: garlic$/i).length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText(/^Preset: dairy-free$/i).length).toBeGreaterThanOrEqual(1);
+});
+
+test("shows generated recipe constraint notes", async () => {
+  mockedAxios.post.mockResolvedValueOnce({
+    data: {
+      recipes: [
+        {
+          title: "Custom Safe Recipe",
+          why_chosen: "A safe fallback recipe was used.",
+          ingredients: [{ name: "spinach", quantity: "1 unit" }],
+          steps: ["Cook and serve."],
+          substitutions: [],
+          nutrition_summary: {
+            calories: null,
+            protein_g: null,
+            carbs_g: null,
+            fats_g: null
+          },
+          warnings: [
+            "Low-confidence generated fallback: no known recipe template matched these ingredients."
+          ],
+          constraint_notes: [
+            "Excluded from the recipe plan because of your active constraints: paneer.",
+            "Active dietary presets: dairy-free."
+          ],
+          match_score: 0.25,
+          matched_input_ingredients: ["spinach"],
+          extra_major_ingredients: [],
+          template_name: "generic_fallback",
+          grounding_source: "template_only"
+        }
+      ],
+      meta: {
+        latency_ms: 140,
+        model_name: "deterministic_generator",
+        recipe_count: 1,
+        input_ingredients: ["spinach", "paneer"],
+        quality_notes: ["Generated output is a low-confidence fallback."]
+      }
+    }
+  });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByLabelText(/^dairy-free$/i));
+  fireEvent.click(screen.getByRole("button", { name: /generate instead/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /custom safe recipe/i })).toBeInTheDocument();
+  });
+
+  expect(screen.getByText(/constraint notes:/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/excluded from the recipe plan because of your active constraints: paneer/i)
+  ).toBeInTheDocument();
+  expect(screen.getByText(/active dietary presets: dairy-free/i)).toBeInTheDocument();
+});
+
+test("copies grounded recipe detail to clipboard", async () => {
+  const writeText = jest.fn().mockResolvedValue(undefined);
+
+  Object.assign(navigator, {
+    clipboard: {
+      writeText,
+    },
+  });
+
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        constraint_notes: ["Active dietary presets for this detail: dairy-free."],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /recipe detail/i })).toBeInTheDocument();
+  });
+
+fireEvent.click(screen.getByRole("button", { name: /copy recipe card/i }));
+
+  await waitFor(() => {
+    expect(writeText).toHaveBeenCalled();
+  });
+
+  expect(writeText.mock.calls[0][0]).toMatch(/saag paneer/i);
+  expect(writeText.mock.calls[0][0]).toMatch(/selected from retrieved recipe candidates/i);
+  expect(
+  screen.getByText(/recipe card copied to clipboard/i)
+).toBeInTheDocument();
+});
+
+test("opens a print view for grounded recipe detail", async () => {
+  const mockPrint = jest.fn();
+  const mockFocus = jest.fn();
+  const mockOpen = jest.fn();
+  const mockWrite = jest.fn();
+  const mockClose = jest.fn();
+
+  const originalOpen = window.open;
+  window.open = jest.fn(() => ({
+    document: {
+      open: mockOpen,
+      write: mockWrite,
+      close: mockClose,
+    },
+    focus: mockFocus,
+    print: mockPrint,
+  } as unknown as Window));
+
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        constraint_notes: ["Active dietary presets for this detail: dairy-free."],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /print recipe card/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /print recipe card/i }));
+
+  expect(window.open).toHaveBeenCalled();
+  expect(mockOpen).toHaveBeenCalled();
+  expect(mockWrite).toHaveBeenCalled();
+  expect(mockPrint).toHaveBeenCalled();
+  expect(screen.getByText(/recipe card print view opened/i)).toBeInTheDocument();
+
+  window.open = originalOpen;
+});
+
+test("opens and closes recipe card preview for grounded detail", async () => {
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        constraint_notes: ["Active dietary presets for this detail: dairy-free."],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole("heading", { name: /recipe detail/i })
+    ).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /preview recipe card/i }));
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole("heading", { name: /recipe card preview/i })
+    ).toBeInTheDocument();
+  });
+
+  const previewHeading = screen.getByRole("heading", {
+    name: /recipe card preview/i,
+  });
+
+  const previewHeaderRow = previewHeading.closest("div");
+  expect(previewHeaderRow).not.toBeNull();
+
+  const previewModal = (previewHeaderRow as HTMLElement).parentElement;
+  expect(previewModal).not.toBeNull();
+
+  const previewScope = within(previewModal as HTMLElement);
+
+  expect(
+    previewScope.getByText(/active dietary presets for this detail: dairy-free/i)
+  ).toBeInTheDocument();
+
+  fireEvent.click(
+    previewScope.getByRole("button", { name: /close preview/i })
+  );
+
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("heading", { name: /recipe card preview/i })
+    ).not.toBeInTheDocument();
+  });
+});
+
+test("downloads the recipe card from grounded detail", async () => {
+  const mockCreateObjectURL = jest.fn(() => "blob:mock-url");
+  const mockRevokeObjectURL = jest.fn();
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+
+  URL.createObjectURL = mockCreateObjectURL;
+  URL.revokeObjectURL = mockRevokeObjectURL;
+
+  const originalCreateElement = document.createElement.bind(document);
+  const anchorElement = originalCreateElement("a");
+  const clickMock = jest.fn();
+  anchorElement.click = clickMock;
+
+  const appendChildSpy = jest.spyOn(document.body, "appendChild");
+  const removeChildSpy = jest.spyOn(document.body, "removeChild");
+
+  const createElementSpy = jest
+    .spyOn(document, "createElement")
+    .mockImplementation((tagName: string) => {
+      if (tagName.toLowerCase() === "a") {
+        return anchorElement;
+      }
+      return originalCreateElement(tagName);
+    });
+
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        constraint_notes: ["Active dietary presets for this detail: dairy-free."],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(
+      screen.getByRole("button", { name: /download recipe card/i })
+    ).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /download recipe card/i }));
+
+  expect(mockCreateObjectURL).toHaveBeenCalled();
+  expect(appendChildSpy).toHaveBeenCalledWith(anchorElement);
+  expect(clickMock).toHaveBeenCalled();
+  expect(removeChildSpy).toHaveBeenCalledWith(anchorElement);
+  expect(screen.getByText(/recipe card downloaded/i)).toBeInTheDocument();
+
+  createElementSpy.mockRestore();
+  appendChildSpy.mockRestore();
+  removeChildSpy.mockRestore();
+  URL.createObjectURL = originalCreateObjectURL;
+  URL.revokeObjectURL = originalRevokeObjectURL;
+});
+
+test("shares the recipe card from grounded detail when Web Share API is available", async () => {
+  const shareMock = jest.fn().mockResolvedValue(undefined);
+  const originalShare = navigator.share;
+
+  Object.assign(navigator, {
+    share: shareMock,
+  });
+
+  mockedAxios.post
+    .mockResolvedValueOnce({
+      data: {
+        mode: "retrieval",
+        recipes: [
+          {
+            id: "r1",
+            title: "Saag Paneer",
+            description: "Spinach and paneer curry.",
+            cuisine: "Indian",
+            prep_time_mins: 30,
+            total_time_mins: 30,
+            servings: 2,
+            match_score: 0.92,
+            why_chosen: "Strong ingredient and cuisine match.",
+            matched_input_ingredients: ["spinach", "paneer"],
+            extra_major_count: 1,
+            confidence_score: 0.88,
+            confidence_level: "high",
+            confidence_reasons: ["All requested ingredients matched strongly."]
+          }
+        ],
+        generated_recipes: [],
+        meta: {
+          recipe_count: 1,
+          source: "local_dataset_retrieval_summary_only",
+          fallback_reason: null,
+          fallback_suggested: false,
+          confidence_score: 0.88,
+          confidence_level: "high",
+          confidence_reasons: ["All requested ingredients matched strongly."]
+        }
+      }
+    })
+    .mockResolvedValueOnce({
+      data: {
+        title: "Saag Paneer",
+        why_chosen: "Selected from retrieved recipe candidates.",
+        ingredients: [{ name: "spinach", quantity: "3 cups" }],
+        steps: ["Cook and serve."],
+        substitutions: [],
+        nutrition_summary: {
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fats_g: null
+        },
+        warnings: [],
+        constraint_notes: ["Active dietary presets for this detail: dairy-free."],
+        source_recipe_title: "Saag Paneer",
+        grounded: true
+      }
+    });
+
+  render(<Page />);
+
+  fireEvent.change(screen.getByLabelText(/^ingredients$/i), {
+    target: { value: "spinach, paneer" }
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /find recipes/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: /saag paneer/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /view full recipe/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /share recipe card/i })).toBeInTheDocument();
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /share recipe card/i }));
+
+  await waitFor(() => {
+    expect(shareMock).toHaveBeenCalledTimes(1);
+  });
+
+  expect(shareMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: "Saag Paneer",
+      text: expect.stringMatching(/saag paneer/i),
+    })
+  );
+
+Object.defineProperty(navigator, "share", {
+  value: originalShare,
+  configurable: true,
+  writable: true,
+});
+});
 });

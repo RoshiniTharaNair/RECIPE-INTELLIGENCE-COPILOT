@@ -646,6 +646,7 @@ Return exactly this JSON shape:
     "carbs_g": 0,
     "fats_g": 0
   }},
+  "constraint_notes": ["string"],
   "warnings": ["string"],
   "source_recipe_title": "string",
   "grounded": true
@@ -675,9 +676,30 @@ Rules:
 - ingredients must always be an array
 - nutrition_summary must always be an object
 - grounded must be true
+Avoid ingredients: {data.avoid_ingredients}
+Dietary preferences: {data.dietary_preferences}
 - Output only JSON
 """.strip()
 
+def build_detail_constraint_notes(data: RecipeDetailGenerateRequest) -> list[str]:
+    notes: list[str] = []
+
+    if data.user_ingredients:
+        notes.append(
+            f"Detail was grounded while keeping your current ingredient context in mind: {', '.join(data.user_ingredients)}."
+        )
+
+    if data.avoid_ingredients:
+        notes.append(
+            f"Active avoid ingredients for this detail: {', '.join(data.avoid_ingredients)}."
+        )
+
+    if data.dietary_preferences:
+        notes.append(
+            f"Active dietary presets for this detail: {', '.join(data.dietary_preferences)}."
+        )
+
+    return notes
 
 def normalize_recipe_detail(result: dict) -> dict:
     if result.get("ingredients") is None:
@@ -700,6 +722,10 @@ def normalize_recipe_detail(result: dict) -> dict:
             "fats_g": None,
         }
 
+    if result.get("constraint_notes") is None:
+        result["constraint_notes"] = []
+
+    result["constraint_notes"] = flatten_to_strings(result.get("constraint_notes"))
     result["steps"] = flatten_to_strings(result.get("steps"))
     result["substitutions"] = flatten_to_strings(result.get("substitutions"))
     result["warnings"] = flatten_to_strings(result.get("warnings"))
@@ -741,14 +767,14 @@ def normalize_recipe_detail(result: dict) -> dict:
 def generate_recipe_detail(data: RecipeDetailGenerateRequest) -> dict:
     recipe = get_recipe_by_id(data.recipe_id)
 
-    return {
+    result = {
         "title": recipe.get("title", "Recipe Detail"),
         "why_chosen": f"Selected because it matches your ingredients: {', '.join(data.user_ingredients)}.",
         "ingredients": [
-            {"name": str(item), "quantity": ""}
+            {"name": item, "quantity": ""}
             for item in recipe.get("ingredients", [])
         ],
-        "steps": [str(step) for step in recipe.get("instructions", [])],
+        "steps": recipe.get("instructions", []),
         "substitutions": [],
         "nutrition_summary": {
             "calories": None,
@@ -757,6 +783,9 @@ def generate_recipe_detail(data: RecipeDetailGenerateRequest) -> dict:
             "fats_g": None,
         },
         "warnings": [],
-        "source_recipe_title": recipe.get("title", ""),
+        "constraint_notes": build_detail_constraint_notes(data),
+        "source_recipe_title": recipe.get("title", "Recipe Detail"),
         "grounded": True,
     }
+
+    return normalize_recipe_detail(result)

@@ -41,6 +41,7 @@ type GeneratedRecipeItem = {
   extra_major_ingredients: string[];
   template_name?: string;
   grounding_source?: string;
+  constraint_notes?: string[];
 };
 
 type RetrieveResponse = {
@@ -87,6 +88,7 @@ type RecipeDetailItem = {
   warnings: string[];
   source_recipe_title: string;
   grounded: boolean;
+  constraint_notes?: string[];
 };
 
 function sourceBadgeClass(source?: string) {
@@ -137,6 +139,10 @@ export default function HomePage() {
   const [avoidIngredients, setAvoidIngredients] = useState("");
 
   const [dietaryPreferences, setDietaryPreferences] = useState<string[]>([]);
+
+  const [detailActionMessage, setDetailActionMessage] = useState("");
+
+  const [showRecipeCardPreview, setShowRecipeCardPreview] = useState(false);
 
   const parsedAvoidIngredients = useMemo(
   () => avoidIngredients.split(",").map((i) => i.trim()).filter(Boolean),
@@ -247,6 +253,8 @@ const response = await axios.post<RecipeDetailItem>(
     servings,
     skill_level: skillLevel,
     user_ingredients: parsedIngredients,
+    avoid_ingredients: parsedAvoidIngredients,
+    dietary_preferences: dietaryPreferences,
   }
 );
 
@@ -304,6 +312,330 @@ const showConstraintBadges =
   activeConstraintBadges.length > 0 &&
   (mode === "retrieval" || mode === "generation_deterministic");
 
+  const showDetailConstraintBadges =
+  activeConstraintBadges.length > 0 &&
+  mode === "retrieval" &&
+  (detailLoading || detailError || selectedRecipeDetail);
+
+const detailConstraintSummary =
+  activeConstraintBadges.length === 0
+    ? ""
+    : "This grounded detail reflects your active avoid list and dietary preset filters.";
+
+
+const buildDetailExportText = (detail: RecipeDetailItem) => {
+  const lines: string[] = [
+    detail.title,
+    "",
+    `Why chosen: ${detail.why_chosen}`,
+    `Source recipe title: ${detail.source_recipe_title || detail.title}`,
+    `Grounded: ${detail.grounded ? "Yes" : "No"}`,
+  ];
+
+  if (detail.constraint_notes && detail.constraint_notes.length > 0) {
+    lines.push("", "Constraint notes:");
+    detail.constraint_notes.forEach((note) => {
+      lines.push(`- ${note}`);
+    });
+  }
+
+  if (detail.warnings && detail.warnings.length > 0) {
+    lines.push("", "Warnings:");
+    detail.warnings.forEach((warning) => {
+      lines.push(`- ${warning}`);
+    });
+  }
+
+  if (detail.ingredients && detail.ingredients.length > 0) {
+    lines.push("", "Ingredients:");
+    detail.ingredients.forEach((item) => {
+      const quantity = item.quantity?.trim();
+      lines.push(`- ${item.name}${quantity ? `: ${quantity}` : ""}`);
+    });
+  }
+
+  if (detail.steps && detail.steps.length > 0) {
+    lines.push("", "Steps:");
+    detail.steps.forEach((step, idx) => {
+      lines.push(`${idx + 1}. ${step}`);
+    });
+  }
+
+  if (detail.substitutions && detail.substitutions.length > 0) {
+    lines.push("", "Substitutions:");
+    detail.substitutions.forEach((substitution) => {
+      lines.push(`- ${substitution}`);
+    });
+  }
+
+  return lines.join("\n");
+};
+
+const handleCopyDetail = async () => {
+  if (!selectedRecipeDetail) return;
+
+  try {
+    await navigator.clipboard.writeText(buildRecipeCardText(selectedRecipeDetail));
+    setDetailActionMessage("Recipe card copied to clipboard.");
+  } catch {
+    setDetailActionMessage("Could not copy recipe card.");
+  }
+};
+
+const handleDownloadDetail = () => {
+  if (!selectedRecipeDetail) return;
+
+  const text = buildRecipeCardText(selectedRecipeDetail);
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const safeTitle =
+    (selectedRecipeDetail.title || "recipe-card")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "recipe-card";
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeTitle}-card.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  setDetailActionMessage("Recipe card downloaded.");
+};
+
+const handlePrintDetail = () => {
+  if (!selectedRecipeDetail) return;
+
+  const printWindow = window.open("", "_blank", "width=900,height=700");
+
+  if (!printWindow) {
+    setDetailActionMessage("Could not open print view.");
+    return;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildRecipeCardPrintHtml(selectedRecipeDetail));
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+
+  setDetailActionMessage("Recipe card print view opened.");
+};
+    const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const buildDetailPrintHtml = (detail: RecipeDetailItem) => {
+  const constraintNotes = (detail.constraint_notes || [])
+    .map((note) => `<li>${escapeHtml(note)}</li>`)
+    .join("");
+
+  const warnings = (detail.warnings || [])
+    .map((warning) => `<li>${escapeHtml(warning)}</li>`)
+    .join("");
+
+  const ingredients = (detail.ingredients || [])
+    .map(
+      (item) =>
+        `<li>${escapeHtml(item.name)}${
+          item.quantity ? ` — ${escapeHtml(item.quantity)}` : ""
+        }</li>`
+    )
+    .join("");
+
+  const steps = (detail.steps || [])
+    .map((step, idx) => `<li>${idx + 1}. ${escapeHtml(step)}</li>`)
+    .join("");
+
+  const substitutions = (detail.substitutions || [])
+    .map((sub) => `<li>${escapeHtml(sub)}</li>`)
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(detail.title)}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; line-height: 1.5; color: #111827; }
+      h1, h2 { margin-bottom: 8px; }
+      .meta { margin-bottom: 20px; color: #374151; }
+      .section { margin-top: 20px; }
+      ul, ol { padding-left: 20px; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(detail.title)}</h1>
+    <div class="meta">
+      <div><strong>Why chosen:</strong> ${escapeHtml(detail.why_chosen)}</div>
+      <div><strong>Source recipe title:</strong> ${escapeHtml(detail.source_recipe_title || detail.title)}</div>
+      <div><strong>Grounded:</strong> ${detail.grounded ? "Yes" : "No"}</div>
+    </div>
+
+    ${
+      constraintNotes
+        ? `<div class="section"><h2>Constraint notes</h2><ul>${constraintNotes}</ul></div>`
+        : ""
+    }
+
+    ${
+      warnings
+        ? `<div class="section"><h2>Warnings</h2><ul>${warnings}</ul></div>`
+        : ""
+    }
+
+    <div class="section"><h2>Ingredients</h2><ul>${ingredients}</ul></div>
+    <div class="section"><h2>Steps</h2><ol>${steps}</ol></div>
+
+    ${
+      substitutions
+        ? `<div class="section"><h2>Substitutions</h2><ul>${substitutions}</ul></div>`
+        : ""
+    }
+  </body>
+</html>`;
+};
+
+
+const buildRecipeCardSections = (detail: RecipeDetailItem) => ({
+  title: detail.title,
+  subtitle: detail.source_recipe_title || detail.title,
+  whyChosen: detail.why_chosen,
+  grounded: detail.grounded ? "Yes" : "No",
+  constraintNotes: detail.constraint_notes || [],
+  warnings: detail.warnings || [],
+  ingredients: detail.ingredients || [],
+  steps: detail.steps || [],
+});
+
+
+const buildRecipeCardText = (detail: RecipeDetailItem) => {
+  const card = buildRecipeCardSections(detail);
+
+  const lines: string[] = [
+    card.title,
+    card.subtitle ? `Source: ${card.subtitle}` : "",
+    `Why chosen: ${card.whyChosen}`,
+    `Grounded: ${card.grounded}`,
+  ].filter(Boolean);
+
+  if (card.constraintNotes.length > 0) {
+    lines.push("", "Constraint notes:");
+    card.constraintNotes.forEach((note) => lines.push(`- ${note}`));
+  }
+
+  if (card.warnings.length > 0) {
+    lines.push("", "Warnings:");
+    card.warnings.forEach((warning) => lines.push(`- ${warning}`));
+  }
+
+  if (card.ingredients.length > 0) {
+    lines.push("", "Ingredients:");
+    card.ingredients.forEach((item) => {
+      lines.push(`- ${item.quantity ? `${item.quantity} ` : ""}${item.name}`);
+    });
+  }
+
+  if (card.steps.length > 0) {
+    lines.push("", "Steps:");
+    card.steps.forEach((step, idx) => lines.push(`${idx + 1}. ${step}`));
+  }
+
+  return lines.join("\n");
+};
+
+const buildRecipeCardPrintHtml = (detail: RecipeDetailItem) => {
+  const card = buildRecipeCardSections(detail);
+
+  const constraintNotes = card.constraintNotes
+    .map((note) => `<li>${escapeHtml(note)}</li>`)
+    .join("");
+
+  const warnings = card.warnings
+    .map((warning) => `<li>${escapeHtml(warning)}</li>`)
+    .join("");
+
+  const ingredients = card.ingredients
+    .map(
+      (item) =>
+        `<li>${item.quantity ? `${escapeHtml(item.quantity)} ` : ""}${escapeHtml(item.name)}</li>`
+    )
+    .join("");
+
+  const steps = card.steps
+    .map((step, idx) => `<li>${idx + 1}. ${escapeHtml(step)}</li>`)
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(card.title)}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; line-height: 1.5; color: #111827; }
+      h1, h2 { margin-bottom: 8px; }
+      .meta { margin-bottom: 20px; color: #374151; }
+      .section { margin-top: 20px; }
+      .card { border: 1px solid #cbd5e1; border-radius: 16px; padding: 24px; background: #f8fafc; }
+      ul, ol { padding-left: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>${escapeHtml(card.title)}</h1>
+      <div class="meta">
+        <div><strong>Source:</strong> ${escapeHtml(card.subtitle)}</div>
+        <div><strong>Why chosen:</strong> ${escapeHtml(card.whyChosen)}</div>
+        <div><strong>Grounded:</strong> ${escapeHtml(card.grounded)}</div>
+      </div>
+
+      ${
+        constraintNotes
+          ? `<div class="section"><h2>Constraint notes</h2><ul>${constraintNotes}</ul></div>`
+          : ""
+      }
+
+      ${
+        warnings
+          ? `<div class="section"><h2>Warnings</h2><ul>${warnings}</ul></div>`
+          : ""
+      }
+
+      <div class="section"><h2>Ingredients</h2><ul>${ingredients}</ul></div>
+      <div class="section"><h2>Steps</h2><ol>${steps}</ol></div>
+    </div>
+  </body>
+</html>`;
+};
+
+const handleShareDetail = async () => {
+  if (!selectedRecipeDetail) return;
+
+  const shareText = buildRecipeCardText(selectedRecipeDetail);
+
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: selectedRecipeDetail.title,
+        text: shareText,
+      });
+      setDetailActionMessage("Recipe card shared.");
+      return;
+    }
+
+    await navigator.clipboard.writeText(shareText);
+    setDetailActionMessage("Share not available, so the recipe card was copied instead.");
+  } catch {
+    setDetailActionMessage("Could not share recipe card.");
+  }
+};
   return (
     <main className="max-w-6xl mx-auto p-8 space-y-6">
       <h1 className="text-3xl font-bold">Recipe Intelligence Copilot</h1>
@@ -673,13 +1005,55 @@ const showConstraintBadges =
       </span>
     )}
 
+
+{selectedRecipeDetail && (
+  <>
+    <button
+      onClick={() => setShowRecipeCardPreview(true)}
+      className="px-3 py-2 rounded-lg border"
+    >
+      Preview Recipe Card
+    </button>
+
+    <button
+      onClick={handleShareDetail}
+      className="px-3 py-2 rounded-lg border"
+    >
+      Share Recipe Card
+    </button>
+
+    <button
+      onClick={handleCopyDetail}
+      className="px-3 py-2 rounded-lg border"
+    >
+      Copy Recipe Card
+    </button>
+
+    <button
+      onClick={handlePrintDetail}
+      className="px-3 py-2 rounded-lg border"
+    >
+      Print Recipe Card
+    </button>
+
+    <button
+      onClick={handleDownloadDetail}
+      className="px-3 py-2 rounded-lg border"
+    >
+      Download Recipe Card
+    </button>
+  </>
+)}
+
     {(selectedRecipeId || selectedRecipeDetail || detailError) && (
       <button
-        onClick={() => {
-          setSelectedRecipeId("");
-          setSelectedRecipeDetail(null);
-          setDetailError("");
-        }}
+       onClick={() => {
+  setSelectedRecipeId("");
+  setSelectedRecipeDetail(null);
+  setDetailError("");
+  setDetailActionMessage("");
+  setShowRecipeCardPreview(false);
+}}
         className="px-3 py-2 rounded-lg border"
       >
         Clear Detail
@@ -688,6 +1062,28 @@ const showConstraintBadges =
   </div>
 </div>
 
+{showDetailConstraintBadges && (
+  <div className="border rounded-lg p-4 bg-slate-50 space-y-3">
+    <h3 className="text-base font-semibold">Constraints used for this detail</h3>
+    <p className="text-sm text-slate-600">{detailConstraintSummary}</p>
+    <div className="flex flex-wrap gap-2">
+      {activeConstraintBadges.map((badge) => (
+        <span
+          key={`detail-${badge.key}`}
+          className="inline-flex items-center rounded-full border px-3 py-1 text-sm bg-white"
+        >
+          {badge.label}
+        </span>
+      ))}
+    </div>
+  </div>
+)}
+
+{detailActionMessage && (
+  <div className="border rounded-lg p-3 bg-slate-50 text-sm">
+    {detailActionMessage}
+  </div>
+)}
           {!selectedRecipeId && !selectedRecipeDetail && !detailLoading && !detailError && (
             <p className="text-slate-600">
               Choose a retrieved recipe and click <strong>View Full Recipe</strong> to load grounded
@@ -780,6 +1176,18 @@ const showConstraintBadges =
               )}
             </div>
           )}
+
+          {selectedRecipeDetail?.constraint_notes &&
+  selectedRecipeDetail.constraint_notes.length > 0 && (
+    <div>
+      <strong>Constraint notes:</strong>
+      <ul className="list-disc pl-6 mt-2">
+        {selectedRecipeDetail.constraint_notes.map((note, idx) => (
+          <li key={idx}>{note}</li>
+        ))}
+      </ul>
+    </div>
+  )}
         </div>
       )}
 
@@ -806,6 +1214,79 @@ const showConstraintBadges =
   </div>
 )}
 
+{showRecipeCardPreview && selectedRecipeDetail && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-6 z-50">
+    <div className="bg-white w-full max-w-2xl rounded-2xl shadow-lg border p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-2xl font-semibold">Recipe Card Preview</h3>
+        <button
+          onClick={() => setShowRecipeCardPreview(false)}
+          className="px-3 py-2 rounded-lg border"
+        >
+          Close Preview
+        </button>
+      </div>
+
+      {(() => {
+        const card = buildRecipeCardSections(selectedRecipeDetail);
+        return (
+          <div className="border rounded-xl p-6 space-y-4 bg-slate-50">
+            <div>
+              <h4 className="text-2xl font-bold">{card.title}</h4>
+              <p className="text-slate-600">{card.subtitle}</p>
+            </div>
+
+            <p><strong>Why chosen:</strong> {card.whyChosen}</p>
+            <p><strong>Grounded:</strong> {card.grounded}</p>
+
+            {card.constraintNotes.length > 0 && (
+              <div>
+                <h5 className="font-semibold">Constraint notes</h5>
+                <ul className="list-disc pl-6">
+                  {card.constraintNotes.map((note, idx) => (
+                    <li key={idx}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {card.warnings.length > 0 && (
+              <div>
+                <h5 className="font-semibold">Warnings</h5>
+                <ul className="list-disc pl-6">
+                  {card.warnings.map((warning, idx) => (
+                    <li key={idx}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div>
+              <h5 className="font-semibold">Ingredients</h5>
+              <ul className="list-disc pl-6">
+                {card.ingredients.map((item, idx) => (
+                  <li key={idx}>
+                    {item.quantity ? `${item.quantity} ` : ""}
+                    {item.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h5 className="font-semibold">Steps</h5>
+              <ol className="list-decimal pl-6">
+                {card.steps.map((step, idx) => (
+                  <li key={idx}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  </div>
+)}
       {mode === "generation_deterministic" && generatedRecipes.length > 0 && (
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold">Generated Recipe Suggestions</h2>
@@ -904,6 +1385,17 @@ const showConstraintBadges =
                       </ul>
                     </div>
                   )}
+
+                  {recipe.constraint_notes && recipe.constraint_notes.length > 0 && (
+  <div>
+    <strong>Constraint notes:</strong>
+    <ul className="list-disc pl-6 mt-2">
+      {recipe.constraint_notes.map((note, idx) => (
+        <li key={idx}>{note}</li>
+      ))}
+    </ul>
+  </div>
+)}
 
                   <p>
                     <strong>Template:</strong> {recipe.template_name || "N/A"}

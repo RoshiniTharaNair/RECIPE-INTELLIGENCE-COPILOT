@@ -322,3 +322,16 @@ def test_build_deterministic_recipe_dairy_free_preset_forces_safe_fallback():
 
     ingredient_names = [item["name"] for item in recipe["ingredients"]]
     assert "paneer" not in ingredient_names
+
+def test_build_deterministic_recipe_adds_constraint_notes_for_safe_fallback():
+    data = RecipeGenerateRequest(
+        ingredients=["spinach", "paneer"],
+        avoid_ingredients=["paneer"],
+        dietary_preferences=["dairy-free"],
+    )
+
+    recipe = build_deterministic_recipe(data, retrieved_candidates=[])
+
+    assert recipe["template_name"] == "generic_fallback"
+    assert len(recipe["constraint_notes"]) >= 1
+    assert any("dietary" in note.lower() for note in recipe["constraint_notes"])

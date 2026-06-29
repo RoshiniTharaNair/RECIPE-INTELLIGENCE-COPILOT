@@ -62,6 +62,42 @@ def ingredient_items(pairs):
 def maybe_step(condition: bool, text: str) -> list[str]:
     return [text] if condition else []
 
+def build_constraint_notes(
+    data: RecipeGenerateRequest,
+    avoid_set: set[str],
+    safe_matched_inputs: List[str],
+    *,
+    skipped_template: bool = False,
+    used_fallback: bool = False,
+) -> List[str]:
+    notes: List[str] = []
+
+    removed_inputs = [
+        item for item in data.ingredients
+        if normalize_generation_ingredient(item) in avoid_set
+    ]
+    if removed_inputs:
+        notes.append(
+            f"Excluded from the recipe plan because of your active constraints: {', '.join(removed_inputs)}."
+        )
+
+    preferences = getattr(data, "dietary_preferences", []) or []
+    if preferences:
+        notes.append(f"Active dietary presets: {', '.join(preferences)}.")
+
+    if skipped_template:
+        notes.append(
+            "A named template was skipped because it conflicted with your avoid list or dietary preferences."
+        )
+    elif used_fallback:
+        notes.append(
+            "A safe fallback recipe was used after applying your active constraints."
+        )
+
+    if not notes and avoid_set:
+        notes.append("Active constraints were checked while building this recipe.")
+
+    return notes
 
 def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates: List[dict]) -> dict:
     avoid_set = normalize_generation_avoid_ingredients(data)
@@ -85,6 +121,11 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
         warnings=None,
     ):
         recipe_names = [normalize_generation_ingredient(name) for name, _ in ingredients if name]
+        constraint_notes = build_constraint_notes(
+            data,
+            avoid_set,
+            safe_matched_inputs,
+        )
         if any(name in avoid_set for name in recipe_names):
             return {
                 "title": "Custom Safe Recipe",
@@ -111,6 +152,13 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
                 "extra_major_ingredients": [],
                 "template_name": "generic_fallback",
                 "grounding_source": "template_only",
+                "constraint_notes": build_constraint_notes(
+                    data,
+                    avoid_set,
+                    safe_matched_inputs,
+                    skipped_template=True,
+                    used_fallback=True,
+                ),
             }
         return {
             "title": title,
@@ -130,6 +178,7 @@ def build_deterministic_recipe(data: RecipeGenerateRequest, retrieved_candidates
             "extra_major_ingredients": [],
             "template_name": template_name,
             "grounding_source": grounding_source,
+            "constraint_notes": constraint_notes,
         }
 
     if has_ing(ing_set, "spinach") and has_ing(ing_set, "paneer") and (cuisine == "indian" or not cuisine):

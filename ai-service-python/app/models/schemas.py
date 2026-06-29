@@ -31,6 +31,7 @@ class RecipeOutput(BaseModel):
     substitutions: List[str] = Field(default_factory=list)
     nutrition_summary: NutritionSummary = Field(default_factory=NutritionSummary)
     warnings: List[str] = Field(default_factory=list)
+    constraint_notes: List[str] = Field(default_factory=list)
     match_score: float = 0.0
     matched_input_ingredients: List[str] = Field(default_factory=list)
     extra_major_ingredients: List[str] = Field(default_factory=list)
@@ -56,6 +57,8 @@ class RecipeDetailGenerateRequest(BaseModel):
     servings: Optional[int] = None
     skill_level: Optional[str] = None
     user_ingredients: List[str] = Field(default_factory=list)
+    avoid_ingredients: List[str] = Field(default_factory=list)
+    dietary_preferences: List[str] = Field(default_factory=list)
 
 
 class RecipeDetailOutput(BaseModel):
@@ -66,6 +69,7 @@ class RecipeDetailOutput(BaseModel):
     substitutions: List[str] = Field(default_factory=list)
     nutrition_summary: NutritionSummary = Field(default_factory=NutritionSummary)
     warnings: List[str] = Field(default_factory=list)
+    constraint_notes: List[str] = Field(default_factory=list)
     source_recipe_title: str = ""
     grounded: bool = True
 
@@ -108,3 +112,8 @@ class RecipeSearchResponse(BaseModel):
     recipes: List[RecipeSummaryOutput] = Field(default_factory=list)
     generated_recipes: List[RecipeOutput] = Field(default_factory=list)
     meta: RetrieveMeta
+
+
+
+
+
